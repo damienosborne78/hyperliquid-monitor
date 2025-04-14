@@ -44,8 +44,8 @@ with sync_playwright() as p:
     try:
         page.goto(f'https://hypurrscan.io/address/{WALLET_ADDRESS}', timeout=120000)
         
-        # Wait for specific data cells to load
-        page.wait_for_selector('div.v-data-table table tbody tr td:nth-child(5)', timeout=60000)
+        # Wait for specific price cell to ensure columns are loaded
+        page.wait_for_selector('div.v-data-table table tbody tr td:nth-child(6)', timeout=60000)
         page.wait_for_timeout(3000)
         
         current_utc = datetime.now(pytz.UTC)
@@ -63,9 +63,10 @@ with sync_playwright() as p:
                     tx_type = cells[1].inner_text().strip()
                     
                     if tx_time and tx_time >= time_threshold:
-                        asset = cells[3].inner_text().strip()  # Corrected index
-                        size = cells[4].inner_text().strip()
-                        price = cells[5].inner_text().strip()  # Corrected index
+                        # Correct column indexes based on Hypurrscan's current layout
+                        asset = cells[4].inner_text().strip()  # Now column 4 for asset
+                        size = cells[3].inner_text().strip()   # Column 3 for size
+                        price = cells[5].inner_text().strip()  # Column 5 for price
                         
                         if "Open" in tx_type or "Close" in tx_type:
                             new_trades.append(
@@ -76,12 +77,15 @@ with sync_playwright() as p:
 
         if new_trades:
             message = "🔥 New Trades:\n" + "\n".join(new_trades[:5])
+            print(f"Sending message: {message}")  # Debug log
             send_telegram_alert(message)
         else:
             print("No new trades detected")
             
     except Exception as e:
         error_msg = f"🚨 Error: {str(e)}"
+        print(error_msg)
         send_telegram_alert(error_msg)
     finally:
         browser.close()
+        
