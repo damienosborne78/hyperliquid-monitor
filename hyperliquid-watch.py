@@ -1,9 +1,10 @@
 import requests
+import os
 from playwright.sync_api import sync_playwright
 from datetime import datetime, timedelta
 
-TELEGRAM_BOT_TOKEN = 'YOUR_BOT_TOKEN'
-TELEGRAM_CHAT_ID = 'YOUR_CHAT_ID'
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')  # Critical change
+TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')      # From GitHub Secrets
 WALLET_ADDRESS = '0xf6B48AA4FD6786e0E4f94B009eA77702F2A36c60'
 
 def send_telegram_alert(message):
