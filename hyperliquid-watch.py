@@ -9,12 +9,8 @@ WALLET_ADDRESS = '0xf6B48AA4FD6786e0E4f94B009eA77702F2A36c60'
 def send_telegram_alert(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     data = {"chat_id": TELEGRAM_CHAT_ID, "text": message}
-    requests.post(url, data=data)
-
-def parse_transactions(content):
-    # Look for these transaction types
-    triggers = ["Open Long", "Open Short", "Close Long", "Close Short"]
-    return [line for line in content.split('\n') if any(t in line for t in triggers)]
+    response = requests.post(url, data=data)
+    print(f"Telegram API Response: {response.status_code}")  # Debug line
 
 with sync_playwright() as p:
     browser = p.chromium.launch()
@@ -26,21 +22,15 @@ with sync_playwright() as p:
     
     try:
         # Load transactions page
-        page.goto(f'https://hypurrscan.io/address/{WALLET_ADDRESS}')
+        page.goto(f'https://hypurrscan.io/address/{WALLET_ADDRESS}', timeout=60000)
         
-        # Wait for transaction table or no-data message
-        page.wait_for_selector('.v-data-table, div.text-center:has-text("No data available")', timeout=60000)
+        # Wait for transaction table
+        page.wait_for_selector('tr[role="row"]', timeout=60000)
         
-        # Handle pagination if needed
-        page.select_option('div.items-per-page-select select', value='100')
-        page.wait_for_timeout(3000)  # Wait for page reload
-        
-        # Get current time to detect new transactions
+        # Get transactions without changing pagination
+        transactions = page.query_selector_all('tr[role="row"]')
         current_time = datetime.utcnow()
         time_threshold = current_time - timedelta(minutes=15)
-        
-        # Extract transaction rows
-        transactions = page.query_selector_all('tr[role="row"]')
         new_trades = []
         
         for tx in transactions:
@@ -62,7 +52,8 @@ with sync_playwright() as p:
 
         # Send alerts if new trades found
         if new_trades:
-            message = "🔥 New Hyperliquid Trades:\n" + "\n".join(new_trades[:5])  # Send max 5 trades
+            message = "🔥 New Hyperliquid Trades:\n" + "\n".join(new_trades[:5])
+            print(f"Sending alert: {message}")  # Debug line
             send_telegram_alert(message)
         else:
             print("No new trades in the last 15 minutes")
