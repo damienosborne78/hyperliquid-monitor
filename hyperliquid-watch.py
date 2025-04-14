@@ -15,26 +15,21 @@ def send_telegram_alert(message):
     print(f"Telegram API Response: {response.status_code}")
 
 def parse_relative_time(relative_str, current_utc):
-    """Convert 'X minutes ago' format to UTC datetime"""
     try:
         parts = relative_str.split()
-        if len(parts) < 2:
-            return None
-            
         value = int(parts[0])
-        unit = parts[1].lower().rstrip('s')  # Normalize units
+        unit = parts[1].lower().rstrip('s')
         
         if 'minute' in unit:
             delta = timedelta(minutes=value)
         elif 'hour' in unit:
             delta = timedelta(hours=value)
         else:
-            print(f"Unhandled time unit: {unit}")
             return None
             
-        return current_utc - delta
+        return current_utc - delta - timedelta(seconds=30)  # 30-sec buffer
     except Exception as e:
-        print(f"Time parse error: {relative_str} - {str(e)}")
+        print(f"Time parse error: {str(e)}")
         return None
 
 with sync_playwright() as p:
@@ -47,22 +42,13 @@ with sync_playwright() as p:
     page = context.new_page()
     
     try:
-        # Load page
         page.goto(f'https://hypurrscan.io/address/{WALLET_ADDRESS}', timeout=120000)
-        print("Page loaded successfully")
-        
-        # Wait for transactions
         page.wait_for_selector('div.v-data-table table tbody tr', timeout=60000)
-        page.wait_for_timeout(3000)  # Stabilization
+        page.wait_for_timeout(5000)  # Increased stabilization
         
-        # Time setup
         current_utc = datetime.now(pytz.UTC)
-        time_threshold = current_utc - timedelta(minutes=5)  # 5-min window for cron
+        time_threshold = current_utc - timedelta(minutes=7)  # 7-minute window
         
-        print(f"Current UTC: {current_utc.isoformat()}")
-        print(f"Threshold: {time_threshold.isoformat()}")
-        
-        # Process transactions
         transactions = page.query_selector_all('div.v-data-table table tbody tr')
         new_trades = []
         
@@ -72,31 +58,20 @@ with sync_playwright() as p:
                 relative_time = cells[2].inner_text().strip()
                 tx_time = parse_relative_time(relative_time, current_utc)
                 
-                print(f"Raw: {relative_time} → Parsed: {tx_time}")
-                
-                if tx_time and tx_time > time_threshold:
+                if tx_time and tx_time >= time_threshold:  # >= instead of >
                     tx_type = cells[1].inner_text().strip()
-                    asset = cells[5].inner_text().strip()
-                    size = cells[4].inner_text().strip()
-                    price = cells[6].inner_text().strip()
-                    
-                    new_trades.append(
-                        f"{tx_time.strftime('%Y-%m-%d %H:%M:%S UTC')} - "
-                        f"{tx_type} {size} {asset} @ {price}"
-                    )
+                    if tx_type in ["Open", "Close"]:  # Explicit check
+                        asset = cells[5].inner_text().strip()
+                        size = cells[4].inner_text().strip()
+                        price = cells[6].inner_text().strip()
+                        new_trades.append(f"{tx_time.strftime('%H:%M:%S UTC')} - {tx_type} {size} {asset} @ {price}")
 
-        # Send alerts
         if new_trades:
-            message = "🔥 New Trades:\n" + "\n".join(new_trades[:5])
-            print(f"Sending alert:\n{message}")
-            send_telegram_alert(message)
+            send_telegram_alert("🔥 New Trades:\n" + "\n".join(new_trades[:5]))
         else:
             print("No new trades detected")
             
     except Exception as e:
-        error_msg = f"🚨 Error: {str(e)}"
-        print(error_msg)
-        send_telegram_alert(error_msg)
-        
+        send_telegram_alert(f"🚨 Error: {str(e)}")
     finally:
         browser.close()
