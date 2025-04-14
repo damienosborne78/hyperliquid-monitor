@@ -26,5 +26,7 @@ with sync_playwright() as p:
     content = page.inner_text('.v-table')
     if "Open Short" in content:
         send_telegram_alert(f"New Hyperliquid trade detected!\n{content[:500]}...")
-    
+    print("=== PAGE CONTENT ===")
+    print(content[:1000])  # Show first 1000 characters of captured content
+    print("====================")
     browser.close()
