@@ -1,7 +1,7 @@
 name: Hyperliquid Monitor
 on:
   schedule:
-    - cron: '*/15 * * * *'  # Runs every 15 minutes
+    - cron: '*/15 * * * *'
   workflow_dispatch:
 
 jobs:
@@ -15,25 +15,16 @@ jobs:
         with:
           python-version: '3.10'
           cache: 'pip'
-
-      - name: Create virtual environment
-        run: |
-          python -m venv venv
-          source venv/bin/activate
+          cache-dependency-path: ''  # Disable requirements.txt check
 
       - name: Install dependencies
         run: |
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install requests playwright
           playwright install chromium
-          pip list  # Verify installations
 
       - name: Run script
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          source venv/bin/activate
-          echo "Python path: $(which python)"
-          python -c "import requests; print('Requests version:', requests.__version__)"
-          python hyperliquid-watch.py
+        run: python hyperliquid-watch.py
