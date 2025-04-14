@@ -8,14 +8,14 @@ jobs:
   monitor:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4  # Properly checks out your repo
 
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
           cache: 'pip'
-          cache-dependency-path: ''  # Critical fix for missing requirements.txt
+          cache-dependency-path: '""'  # Explicitly ignores requirements.txt
 
       - name: Install dependencies
         run: |
@@ -23,7 +23,7 @@ jobs:
           pip install requests playwright
           playwright install chromium
 
-      - name: Run script
+      - name: Run monitoring script
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
