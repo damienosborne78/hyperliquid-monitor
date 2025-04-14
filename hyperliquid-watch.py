@@ -2,7 +2,8 @@ import os
 import requests
 from playwright.sync_api import sync_playwright
 from datetime import datetime, timedelta
-import pytz  # Add this new dependency
+import pytz
+from dateutil import parser  # More flexible timestamp parsing
 
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
@@ -16,10 +17,10 @@ def send_telegram_alert(message):
 
 def parse_timestamp(timestamp_str):
     try:
-        # Force UTC timezone interpretation
-        naive = datetime.strptime(timestamp_str, "%m/%d/%Y, %I:%M:%S %p")
-        return naive.replace(tzinfo=pytz.UTC)
-    except ValueError:
+        dt = parser.parse(timestamp_str)
+        return dt.astimezone(pytz.UTC)
+    except Exception as e:
+        print(f"Timestamp parse error: {str(e)}")
         return None
 
 with sync_playwright() as p:
@@ -27,23 +28,26 @@ with sync_playwright() as p:
     context = browser.new_context(
         user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
         viewport={"width": 1920, "height": 1080},
-        timezone_id="UTC"  # Set browser timezone
+        timezone_id="UTC"
     )
     page = context.new_page()
     
     try:
+        # Load page with debugging
         page.goto(f'https://hypurrscan.io/address/{WALLET_ADDRESS}', timeout=120000)
+        print("Page loaded successfully")
         
-        # Updated selector for transaction rows
+        # Wait for transaction table
         page.wait_for_selector('div.v-data-table table tbody tr', timeout=60000)
-        page.wait_for_timeout(3000)  # Extra stabilization
+        page.wait_for_timeout(3000)
         
-        current_time = datetime.now(pytz.UTC)  # Get current UTC time
-        time_threshold = current_time - timedelta(minutes=2)  # Match 1m cron
+        # Get current UTC time
+        current_time = datetime.now(pytz.UTC)
+        time_threshold = current_time - timedelta(minutes=2)
+        print(f"Current UTC: {current_time.isoformat()}")
+        print(f"Threshold UTC: {time_threshold.isoformat()}")
         
-        print(f"Current UTC time: {current_time}")
-        print(f"Threshold time: {time_threshold}")
-        
+        # Find transactions
         transactions = page.query_selector_all('div.v-data-table table tbody tr')
         new_trades = []
         
@@ -53,7 +57,7 @@ with sync_playwright() as p:
                 timestamp_str = cells[2].inner_text().strip()
                 tx_time = parse_timestamp(timestamp_str)
                 
-                print(f"Found transaction at: {tx_time} (UTC)")
+                print(f"Raw timestamp: {timestamp_str} → Parsed: {tx_time}")
                 
                 if tx_time and tx_time > time_threshold:
                     tx_type = cells[1].inner_text().strip()
@@ -67,14 +71,14 @@ with sync_playwright() as p:
                     )
 
         if new_trades:
-            message = "🔥 New Trades:\n" + "\n".join(new_trades)
-            print(f"Sending alert: {message}")
+            message = "🔥 New Trades:\n" + "\n".join(new_trades[:5])
+            print(f"Alert content:\n{message}")
             send_telegram_alert(message)
         else:
             print("No new trades detected")
             
     except Exception as e:
-        error_msg = f"🚨 Error: {str(e)}"
+        error_msg = f"🚨 Critical Error: {str(e)}"
         print(error_msg)
         send_telegram_alert(error_msg)
         
