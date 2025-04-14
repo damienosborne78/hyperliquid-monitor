@@ -2,26 +2,32 @@ name: Hyperliquid Monitor
 on:
   schedule:
     - cron: '*/15 * * * *'  # Runs every 15 minutes
+  workflow_dispatch:
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
-      
+          cache: 'pip'  # Critical for dependency caching
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install requests playwright --force-reinstall
+          python -m pip install requests playwright --user  # Force user-level install
           playwright install chromium
-      
+
       - name: Run script
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python hyperliquid-watch.py
+        run: |
+          echo "Python path: $(which python)"
+          echo "Pip list:"
+          python -m pip list
+          python hyperliquid-watch.py  # Debugging output
