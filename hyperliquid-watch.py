@@ -6,10 +6,7 @@ import pytz
 
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID')
-WALLET_ADDRESS = [
-    '0x45d26f28196d226497130c4bac709d808fed4029',
-    '0xf6B48AA4FD6786e0E4f94B009eA77702F2A36c60',
-]
+WALLET_ADDRESS = '0xf6B48AA4FD6786e0E4f94B009eA77702F2A36c60'
 
 def send_telegram_alert(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
