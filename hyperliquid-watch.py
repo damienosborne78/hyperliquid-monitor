@@ -20,7 +20,9 @@ def parse_relative_time(relative_str, current_utc):
         value = int(parts[0])
         unit = parts[1].lower().rstrip('s')
         
-        if 'minute' in unit:
+        if 'second' in unit:
+            delta = timedelta(seconds=value)
+        elif 'minute' in unit:
             delta = timedelta(minutes=value)
         elif 'hour' in unit:
             delta = timedelta(hours=value)
@@ -42,44 +44,30 @@ with sync_playwright() as p:
     page = context.new_page()
     
     try:
-        # Load page with retries
-        retry_count = 0
-        while retry_count < 3:
-            try:
-                page.goto(f'https://hypurrscan.io/address/{WALLET_ADDRESS}', 
-                         timeout=120000, 
-                         wait_until='networkidle')
-                break
-            except Exception as e:
-                retry_count += 1
-                print(f"Page load failed, retry {retry_count}/3")
-                page.reload()
-
-        # Wait for core elements
-        page.wait_for_selector('div.v-data-table', state='attached', timeout=60000)
-        page.wait_for_selector('div.v-data-table table tbody tr', timeout=30000)
+        page.goto(f'https://hypurrscan.io/address/{WALLET_ADDRESS}', timeout=120000)
+        
+        # Wait for dynamic content
+        page.wait_for_selector('div.v-data-table table tbody tr', timeout=60000)
+        page.wait_for_timeout(2000)  # Extra buffer
         
         current_utc = datetime.now(pytz.UTC)
-        time_threshold = current_utc - timedelta(minutes=15)  # 15-minute window
+        time_threshold = current_utc - timedelta(minutes=4, seconds=45)  # 4m45s buffer
         
         transactions = page.query_selector_all('div.v-data-table table tbody tr')
         new_trades = []
         
-        print(f"Found {len(transactions)} transactions total")  # Debug log
-
         for tx in transactions:
             cells = tx.query_selector_all('td')
-            if len(cells) >= 6:
+            if len(cells) >= 5:
                 try:
-                    # Updated column indexes based on current Hypurrscan layout
-                    relative_time = cells[0].inner_text().strip()  # Time column
+                    # Current Hypurrscan columns (verified 2025-04-16):
+                    relative_time = cells[0].inner_text().strip()  # Time
                     tx_type = cells[1].inner_text().strip()        # Type
                     size = cells[2].inner_text().strip()           # Size
                     asset = cells[3].inner_text().strip()          # Asset
                     price = cells[4].inner_text().strip()          # Price
                     
                     tx_time = parse_relative_time(relative_time, current_utc)
-                    print(f"Found transaction at {tx_time}")  # Debug log
                     
                     if tx_time and tx_time >= time_threshold:
                         if "Open" in tx_type or "Close" in tx_type:
@@ -90,14 +78,14 @@ with sync_playwright() as p:
                     print(f"Error processing row: {str(e)}")
 
         if new_trades:
-            message = "🔥 New Trades:\n" + "\n".join(new_trades[:5])
+            message = "🚨 New Trade Alert:\n" + "\n".join(new_trades[:3])
             print(f"Sending message: {message}")
             send_telegram_alert(message)
         else:
-            print(f"No new trades in last 15 minutes (threshold: {time_threshold})")
+            print(f"No new trades in last 5 minutes (threshold: {time_threshold})")
             
     except Exception as e:
-        error_msg = f"🚨 Critical Error: {str(e)}"
+        error_msg = f"🚨 Script Error: {str(e)}"
         print(error_msg)
         send_telegram_alert(error_msg)
     finally:
