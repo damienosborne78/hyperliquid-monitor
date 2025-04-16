@@ -16,16 +16,11 @@ def send_telegram_alert(message):
 
 def parse_relative_time(relative_str, current_utc):
     try:
-        # Filter out transaction hashes and invalid formats
-        if not relative_str.endswith(' ago') or '...' in relative_str:
+        # Skip transaction hashes and invalid formats
+        if '...' in relative_str or 'ago' not in relative_str:
             return None
             
-        clean_str = relative_str.replace(' ago', '').strip()
-        parts = clean_str.split()
-        
-        if len(parts) != 2:
-            return None
-            
+        parts = relative_str.replace(' ago', '').split()
         value = int(parts[0])
         unit = parts[1].lower().rstrip('s')
         
@@ -40,7 +35,7 @@ def parse_relative_time(relative_str, current_utc):
             
         return current_utc - delta
     except Exception as e:
-        print(f"Skipping invalid time format: '{relative_str}' - {str(e)}")
+        print(f"Skipping invalid time format: '{relative_str}'")
         return None
 
 with sync_playwright() as p:
@@ -55,41 +50,36 @@ with sync_playwright() as p:
     try:
         page.goto(f'https://hypurrscan.io/address/{WALLET_ADDRESS}', timeout=120000)
         
-        # Wait for both table and specific time elements
+        # Wait for actual time elements, not transaction hashes
         page.wait_for_selector('div.v-data-table table tbody tr td:nth-child(1):has-text("ago")', timeout=60000)
-        page.wait_for_timeout(2000)
+        page.wait_for_timeout(3000)
         
         current_utc = datetime.now(pytz.UTC)
-        time_threshold = current_utc - timedelta(minutes=4, seconds=45)  # 4m45s buffer
+        time_threshold = current_utc - timedelta(minutes=5)
         
         transactions = page.query_selector_all('div.v-data-table table tbody tr')
         new_trades = []
         
-        print(f"Processing {len(transactions)} transactions...")
-        
         for tx in transactions:
             cells = tx.query_selector_all('td')
-            if len(cells) >= 6:
+            if len(cells) >= 7:  # Verify column count matches current layout
                 try:
-                    # Current Hypurrscan columns (verified 2025-04-16):
+                    # Correct column indexes for Hypurrscan as of 2025-04-16:
                     # 0: Time | 1: Type | 2: Size | 3: Asset | 4: Price
                     time_cell = cells[0].inner_text().strip()
                     tx_time = parse_relative_time(time_cell, current_utc)
                     
-                    if not tx_time or tx_time < time_threshold:
-                        continue
-                        
-                    tx_type = cells[1].inner_text().strip()
-                    size = cells[2].inner_text().strip()
-                    asset = cells[3].inner_text().strip()
-                    price = cells[4].inner_text().strip()
+                    if tx_time and tx_time >= time_threshold:
+                        tx_type = cells[1].inner_text().strip()
+                        size = cells[2].inner_text().strip()
+                        asset = cells[3].inner_text().strip()
+                        price = cells[4].inner_text().strip()
 
-                    if "Open" in tx_type or "Close" in tx_type:
-                        new_trades.append(
-                            f"{tx_time.strftime('%H:%M:%S UTC')} - {tx_type} {size} {asset} @ {price}"
-                        )
-                        print(f"New trade found: {tx_type} {asset}")
-                        
+                        if "Open" in tx_type or "Close" in tx_type:
+                            new_trades.append(
+                                f"{tx_time.strftime('%H:%M:%S UTC')} - {tx_type} {size} {asset} @ {price}"
+                            )
+                            
                 except Exception as e:
                     print(f"Skipping invalid row: {str(e)}")
                     continue
@@ -101,8 +91,3 @@ with sync_playwright() as p:
             print(f"No new trades in last 5 minutes (threshold: {time_threshold})")
             
     except Exception as e:
-        error_msg = f"🚨 Critical Error: {str(e)}"
-        print(error_msg)
-        send_telegram_alert(error_msg)
-    finally:
-        browser.close()
