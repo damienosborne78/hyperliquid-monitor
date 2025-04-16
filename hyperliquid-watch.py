@@ -17,19 +17,17 @@ def send_telegram_alert(message):
 
 def parse_relative_time(relative_str):
     try:
-        # Match patterns like "5 minutes ago" or "30 seconds ago"
-        match = re.match(r'(\d+)\s+(second|minute|hour)s?\s+ago', relative_str)
+        # Handle both "X min(s) ago" and "X hour(s) ago" formats
+        match = re.match(r'(\d+)\s+(min|hour)(?:s?)\s+ago', relative_str)
         if not match:
             return None
             
         value = int(match.group(1))
         unit = match.group(2)
         
-        if unit.startswith('second'):
-            delta = timedelta(seconds=value)
-        elif unit.startswith('minute'):
+        if unit == 'min':
             delta = timedelta(minutes=value)
-        elif unit.startswith('hour'):
+        elif unit == 'hour':
             delta = timedelta(hours=value)
         else:
             return None
@@ -49,55 +47,43 @@ with sync_playwright() as p:
     page = context.new_page()
     
     try:
-        # Load page with retries and proper waiting
         page.goto(f'https://hypurrscan.io/address/{WALLET_ADDRESS}', timeout=120000)
-        page.wait_for_selector('div.v-data-table table tbody tr:has(td:has-text("ago"))', timeout=60000)
+        
+        # Wait for actual transaction rows to load
+        page.wait_for_selector('div.v-data-table table tbody tr:has(td:has-text("min"))', timeout=60000)
         
         current_time = datetime.now(pytz.UTC)
-        time_threshold = current_time - timedelta(minutes=5)
+        time_threshold = current_time - timedelta(minutes=4)  # 4-minute window
         
         transactions = page.query_selector_all('div.v-data-table table tbody tr')
         new_trades = []
         
-        print(f"Found {len(transactions)} transactions")
+        print(f"Processing {len(transactions)} transactions...")
         
         for tx in transactions:
             cells = tx.query_selector_all('td')
-            if len(cells) < 7:
-                continue
-                
-            try:
-                # Extract and validate time
-                time_cell = cells[2].inner_text().strip()  # Adjusted column index
-                tx_time = parse_relative_time(time_cell)
-                
-                if not tx_time or tx_time < time_threshold:
-                    continue
-                
-                # Extract other fields
-                tx_type = cells[1].inner_text().strip()
-                size = cells[3].inner_text().strip()
-                asset = cells[4].inner_text().strip()
-                price = cells[5].inner_text().strip()
-                
-                if "Open" in tx_type or "Close" in tx_type:
-                    new_trades.append(
-                        f"{tx_time.strftime('%H:%M:%S UTC')} - {tx_type} {size} {asset} @ {price}"
-                    )
+            if len(cells) >= 7:  # Verify column count for current layout
+                try:
+                    # Correct column indexes as of 2025-04-16:
+                    # 0: Expand | 1: Type | 2: Time | 3: Size | 4: Asset | 5: Price
+                    time_cell = cells[2].inner_text().strip()
+                    tx_time = parse_relative_time(time_cell)
                     
-            except Exception as e:
-                print(f"Skipping invalid row: {str(e)}")
-                continue
+                    if not tx_time or tx_time < time_threshold:
+                        continue
+                        
+                    tx_type = cells[1].inner_text().strip()
+                    size = cells[3].inner_text().strip()
+                    asset = cells[4].inner_text().strip()
+                    price = cells[5].inner_text().strip()
 
-        if new_trades:
-            message = "🚨 New Trade Alert:\n" + "\n".join(new_trades[:5])
-            send_telegram_alert(message)
-        else:
-            print(f"No new trades in last 5 minutes (threshold: {time_threshold})")
-            
-    except Exception as e:
-        error_msg = f"🚨 Critical Error: {str(e)}"
-        print(error_msg)
-        send_telegram_alert(error_msg)
-    finally:
-        browser.close()
+                    # Debug log parsed values
+                    print(f"Found: {tx_time} | {tx_type} | {size} {asset} @ {price}")
+                    
+                    if "Open" in tx_type or "Close" in tx_type:
+                        new_trades.append(
+                            f"{tx_time.strftime('%H:%M:%S UTC')} - {tx_type} {size} {asset} @ {price}"
+                        )
+                        
+                except Exception as e:
+                    print(f"S
